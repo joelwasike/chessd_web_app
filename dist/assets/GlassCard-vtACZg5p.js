@@ -1,0 +1,1 @@
+import{j as o}from"./chess-BaROW8wc.js";function e({children:a,className:r="",style:t={},onClick:s}){return o.jsx("div",{className:`glass-card ${r}`,style:t,onClick:s,role:s?"button":void 0,tabIndex:s?0:void 0,children:a})}export{e as G};

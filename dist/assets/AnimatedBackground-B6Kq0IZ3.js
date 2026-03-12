@@ -1,0 +1,1 @@
+import{j as s}from"./chess-BaROW8wc.js";function r(){return s.jsxs("div",{className:"animated-bg",children:[s.jsx("div",{className:"orb"}),s.jsx("div",{className:"orb"}),s.jsx("div",{className:"orb"}),s.jsx("div",{className:"orb"})]})}export{r as A};

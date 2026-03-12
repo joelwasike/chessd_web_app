@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;600;700&display=swap');
+/* Fonts preloaded in index.html to avoid render-blocking */
 
 :root {
   --bg: #3E2723;

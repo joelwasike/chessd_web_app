@@ -29,6 +29,80 @@ function resultLabel(result, method, mode, myColor) {
   return iWin ? 'You Win!' : 'You Lose';
 }
 
+// Piece symbols for display
+const PIECE_SYMBOLS = {
+  p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚',
+  P: '♙', N: '♘', B: '♗', R: '♖', Q: '♕', K: '♔',
+};
+
+// Starting piece counts per side
+const STARTING_PIECES = { p: 8, n: 2, b: 2, r: 2, q: 1, k: 1 };
+
+// Piece values for material advantage calculation
+const PIECE_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+
+// Display order (most valuable first)
+const PIECE_ORDER = ['q', 'r', 'b', 'n', 'p'];
+
+function getCapturedPieces(fen) {
+  // Count pieces on board from FEN
+  const board = fen.split(' ')[0];
+  const white = { p: 0, n: 0, b: 0, r: 0, q: 0, k: 0 };
+  const black = { p: 0, n: 0, b: 0, r: 0, q: 0, k: 0 };
+
+  for (const ch of board) {
+    if (ch >= 'A' && ch <= 'Z') white[ch.toLowerCase()] = (white[ch.toLowerCase()] || 0) + 1;
+    else if (ch >= 'a' && ch <= 'z') black[ch] = (black[ch] || 0) + 1;
+  }
+
+  // Captured = starting minus remaining on board
+  // White captured these black pieces, black captured these white pieces
+  const whiteCaptured = []; // black pieces white took
+  const blackCaptured = []; // white pieces black took
+  let whiteMaterial = 0, blackMaterial = 0;
+
+  for (const p of PIECE_ORDER) {
+    const blackMissing = STARTING_PIECES[p] - (black[p] || 0);
+    const whiteMissing = STARTING_PIECES[p] - (white[p] || 0);
+    for (let i = 0; i < blackMissing; i++) whiteCaptured.push(p);
+    for (let i = 0; i < whiteMissing; i++) blackCaptured.push(p);
+    whiteMaterial += (white[p] || 0) * PIECE_VALUES[p];
+    blackMaterial += (black[p] || 0) * PIECE_VALUES[p];
+  }
+
+  const advantage = whiteMaterial - blackMaterial;
+  return { whiteCaptured, blackCaptured, advantage };
+}
+
+function CapturedPieces({ pieces, color, advantage }) {
+  // pieces: array of piece types this player captured
+  // color: 'w' or 'b' — the capturing player
+  // advantage: positive means white leads
+  const adv = color === 'w' ? advantage : -advantage;
+  if (pieces.length === 0 && adv <= 0) return null;
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', minHeight: 22 }}>
+      {pieces.map((p, i) => (
+        <span key={i} style={{
+          fontSize: 16,
+          lineHeight: 1,
+          opacity: 0.85,
+          color: color === 'w' ? '#555' : '#ddd',
+          filter: color === 'w' ? 'none' : 'drop-shadow(0 0 1px rgba(0,0,0,0.5))',
+        }}>
+          {color === 'w' ? PIECE_SYMBOLS[p] : PIECE_SYMBOLS[p.toUpperCase()]}
+        </span>
+      ))}
+      {adv > 0 && (
+        <span style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 700, marginLeft: 4 }}>
+          +{adv}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function methodLabel(method) {
   if (!method) return '';
   const map = {
@@ -142,6 +216,7 @@ const s = {
     border: '1.2px solid var(--glass-border)',
     borderRadius: 14,
     padding: '10px 14px',
+    minHeight: 48,
     maxHeight: 120,
     overflowY: 'auto',
     display: 'flex',
@@ -150,6 +225,7 @@ const s = {
     fontSize: 13,
     color: 'var(--text-secondary)',
     lineHeight: 1.8,
+    alignContent: 'flex-start',
   },
   moveNumber: {
     color: 'var(--text-secondary)',
@@ -241,6 +317,18 @@ const s = {
     color: 'var(--accent)',
     fontSize: 16,
     fontWeight: 600,
+  },
+  shareBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    border: '1.5px solid var(--glass-border)',
+    background: 'rgba(255,255,255,0.06)',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.2s',
   },
 };
 
@@ -577,6 +665,39 @@ export default function GameScreen() {
     setOrientation((prev) => (prev === 'white' ? 'black' : 'white'));
   };
 
+  // ── Share helpers ──────────────────────────────────────────────────────────
+
+  const getShareText = useCallback(() => {
+    if (!gameOver) return '';
+    const res = resultLabel(gameOver.result, gameOver.method, mode, myColor);
+    const method = gameOver.method ? ` ${methodLabel(gameOver.method)}` : '';
+    const moves = moveHistory.length;
+    return `${res}${method} in ${moves} moves on Chessd! Play me at https://chessd.games`;
+  }, [gameOver, mode, myColor, moveHistory]);
+
+  const shareToWhatsApp = useCallback(() => {
+    const text = encodeURIComponent(getShareText() + '\n\nJoin our community: https://chat.whatsapp.com/KrjLWxpbFCBFRc3QjRHxVC?mode=hqctcli');
+    window.open(`https://wa.me/?text=${text}`, '_blank');
+  }, [getShareText]);
+
+  const shareToTelegram = useCallback(() => {
+    const text = encodeURIComponent(getShareText());
+    const url = encodeURIComponent('https://t.me/chessdke');
+    window.open(`https://t.me/share/url?url=${url}&text=${text}`, '_blank');
+  }, [getShareText]);
+
+  const shareGeneric = useCallback(async () => {
+    const text = getShareText();
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Chessd Game Result', text, url: 'https://chessd.games' });
+      } catch { /* user cancelled */ }
+    } else {
+      await navigator.clipboard?.writeText(text);
+      alert('Result copied to clipboard!');
+    }
+  }, [getShareText]);
+
   const handleNewGame = () => {
     chessRef.current = new Chess();
     setFen(chessRef.current.fen());
@@ -791,6 +912,18 @@ export default function GameScreen() {
   const bottomTime = bottomIsWhite ? whiteTime : blackTime;
   const bottomActive = bottomIsWhite ? turn === 'w' : turn === 'b';
 
+  // ── Captured pieces ────────────────────────────────────────────────────────
+  const { whiteCaptured, blackCaptured, advantage } = useMemo(
+    () => getCapturedPieces(fen),
+    [fen]
+  );
+
+  // Top player's captures (pieces they won)
+  const topCaptured = topIsWhite ? whiteCaptured : blackCaptured;
+  const topColor = topIsWhite ? 'w' : 'b';
+  const bottomCaptured = bottomIsWhite ? whiteCaptured : blackCaptured;
+  const bottomColor = bottomIsWhite ? 'w' : 'b';
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -800,7 +933,10 @@ export default function GameScreen() {
         <div style={s.container}>
           {/* Top player bar */}
           <div style={s.playerBar}>
-            <span style={s.playerName}>{topName}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: 1 }}>
+              <span style={s.playerName}>{topName}</span>
+              <CapturedPieces pieces={topCaptured} color={topColor} advantage={advantage} />
+            </div>
             <span
               style={{
                 ...s.clock,
@@ -848,7 +984,10 @@ export default function GameScreen() {
 
           {/* Bottom player bar */}
           <div style={s.playerBar}>
-            <span style={s.playerName}>{bottomName}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: 1 }}>
+              <span style={s.playerName}>{bottomName}</span>
+              <CapturedPieces pieces={bottomCaptured} color={bottomColor} advantage={advantage} />
+            </div>
             <span
               style={{
                 ...s.clock,
@@ -861,48 +1000,46 @@ export default function GameScreen() {
             </span>
           </div>
 
-          {/* Controls */}
-          {!gameOver && (
-            <div style={s.controls}>
-              {isOnline && (
-                <>
-                  <button
-                    style={{ ...s.btnBase, ...s.btnResign }}
-                    onClick={handleResign}
-                  >
-                    {confirmResign ? 'Confirm?' : 'Resign'}
-                  </button>
-                  <button
-                    style={{ ...s.btnBase, ...s.btnDraw }}
-                    onClick={handleDrawOffer}
-                  >
-                    Draw
-                  </button>
-                </>
-              )}
-              {mode === 'local' && (
-                <>
-                  <button
-                    style={{ ...s.btnBase, ...s.btnResign }}
-                    onClick={handleResign}
-                  >
-                    {confirmResign ? 'Confirm?' : 'Resign'}
-                  </button>
-                  <button
-                    style={{ ...s.btnBase, ...s.btnFlip }}
-                    onClick={handleFlip}
-                  >
-                    Flip Board
-                  </button>
-                </>
-              )}
-            </div>
-          )}
+          {/* Controls — always rendered to prevent layout shift */}
+          <div style={{ ...s.controls, visibility: gameOver ? 'hidden' : 'visible' }}>
+            {(isOnline || mode === 'bot') && (
+              <>
+                <button
+                  style={{ ...s.btnBase, ...s.btnResign }}
+                  onClick={handleResign}
+                >
+                  {confirmResign ? 'Confirm?' : 'Resign'}
+                </button>
+                <button
+                  style={{ ...s.btnBase, ...s.btnDraw }}
+                  onClick={handleDrawOffer}
+                >
+                  Draw
+                </button>
+              </>
+            )}
+            {mode === 'local' && (
+              <>
+                <button
+                  style={{ ...s.btnBase, ...s.btnResign }}
+                  onClick={handleResign}
+                >
+                  {confirmResign ? 'Confirm?' : 'Resign'}
+                </button>
+                <button
+                  style={{ ...s.btnBase, ...s.btnFlip }}
+                  onClick={handleFlip}
+                >
+                  Flip Board
+                </button>
+              </>
+            )}
+          </div>
 
-          {/* Move list */}
-          {moveHistory.length > 0 && (
-            <div style={s.moveList} ref={moveListRef}>
-              {moveHistory.map((move, i) =>
+          {/* Move list — always rendered with fixed height to prevent layout shift */}
+          <div style={s.moveList} ref={moveListRef}>
+            {moveHistory.length > 0 ? (
+              moveHistory.map((move, i) =>
                 i % 2 === 0 ? (
                   <span key={i}>
                     <span style={s.moveNumber}>{Math.floor(i / 2) + 1}.</span>
@@ -913,9 +1050,11 @@ export default function GameScreen() {
                     {move}
                   </span>
                 )
-              )}
-            </div>
-          )}
+              )
+            ) : (
+              <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>Moves will appear here</span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -945,6 +1084,29 @@ export default function GameScreen() {
             {gameOver.method && (
               <p style={s.overlayMethod}>{methodLabel(gameOver.method)}</p>
             )}
+
+            {/* Share buttons */}
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 12, marginTop: 0 }}>
+              Share your result
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginBottom: 24 }}>
+              <button onClick={shareToWhatsApp} style={s.shareBtn} title="Share on WhatsApp">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="#25D366">
+                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                </svg>
+              </button>
+              <button onClick={shareToTelegram} style={s.shareBtn} title="Share on Telegram">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="#26A5E4">
+                  <path d="M11.944 0A12 12 0 000 12a12 12 0 0012 12 12 12 0 0012-12A12 12 0 0012 0h-.056zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 01.171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+                </svg>
+              </button>
+              <button onClick={shareGeneric} style={s.shareBtn} title="Share / Copy">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="var(--text-primary)" stroke="none">
+                  <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/>
+                </svg>
+              </button>
+            </div>
+
             <div style={s.overlayBtns}>
               <button
                 className="btn-accent"
